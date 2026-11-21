@@ -51,6 +51,10 @@
   .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   .small { font-size: 14px; color: #5b6272; }
   a { color: #4b3bd6; }
+  code.line { display: block; margin: 0 0 14px; padding: 10px 12px; border-radius: 10px; background: #fff; border: 1px solid #e3e6ee; font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace; color: #33405c; overflow-wrap: anywhere; }
+  details.card summary { cursor: pointer; font-weight: 650; }
+  details.card ol { margin: 12px 0 0; padding-left: 22px; font: 13px/1.6 ui-monospace, "SF Mono", Menlo, monospace; color: #33405c; }
+  details.card li { overflow-wrap: anywhere; margin-bottom: 4px; }
   [hidden] { display: none !important; }
 </style>
 <script src="https://unpkg.com/xlogin@0.0.16"></script>
@@ -87,11 +91,28 @@
     </div>
   </section>
 
+  <section class="card bad" id="noprefs" hidden>
+    <h2>Your profile has no link to a preferences file</h2>
+    <p>A tool index is found through your preferences file, and your preferences file is found through your profile. Your profile does not name one, so there is nowhere to put the link.</p>
+    <p id="noprefsFound"></p>
+    <p>To fix it, add this line to your profile, then look again:</p>
+    <code class="line" id="noprefsLine"></code>
+    <div class="row">
+      <button class="quiet" id="copyLine" type="button">Copy the line</button>
+      <button class="quiet" id="again2" type="button">Look again</button>
+    </div>
+  </section>
+
   <section class="card bad" id="trouble" hidden>
     <h2>That did not work</h2>
     <p id="troubleText"></p>
     <button class="quiet" id="again" type="button">Look again</button>
   </section>
+
+  <details class="card" id="working" hidden>
+    <summary>What was checked</summary>
+    <ol id="trace"></ol>
+  </details>
 
   <p class="who" id="who" hidden></p>
   <p class="small" id="foot">A tool index follows the <a href="https://pod-os.org/vocab/tools">PodOS tools vocabulary</a>. The <a href="https://solidos.org/docs/browser/">SolidOS Browser</a> reads it when you log in. Source: <a href="https://github.com/solid-apps/tools">github.com/solid-apps/tools</a></p>
@@ -99,17 +120,42 @@
 
 <script type="module">
   import * as rdf from 'https://esm.sh/rdflib@2.4.1'
-  import { lookUp, plan, create, dashboard } from './tools.js'
+  import { lookUp, plan, create, dashboard, preferencesLink } from './tools.js'
 
   const $ = (id) => document.getElementById(id)
-  const sections = ['out', 'busy', 'have', 'propose', 'trouble']
+  const sections = ['out', 'busy', 'have', 'propose', 'noprefs', 'trouble']
   const showOnly = (id) => { for (const name of sections) $(name).hidden = name !== id }
+
+  // The working: every request made and what came back. Shown open when something failed.
+  function working (trace, open) {
+    const box = $('working')
+    const list = $('trace')
+    list.replaceChildren()
+    for (const line of trace || []) {
+      const item = document.createElement('li')
+      item.textContent = line
+      list.appendChild(item)
+    }
+    box.hidden = !(trace && trace.length)
+    box.open = !!open
+  }
   const webId = () => (window.xlogin && window.xlogin.type === 'solid' && window.xlogin.id) || ''
   const context = () => ({ webId: webId(), fetch: (url, init) => window.xlogin.authFetch(url, init), rdf })
 
   function trouble (error) {
     $('troubleText').textContent = error && error.message ? error.message : String(error)
     showOnly('trouble')
+    working(error && error.trace, true)
+  }
+
+  function noPreferences (state) {
+    const guess = state.found[0] || new URL('/settings/prefs.jsonld', webId()).href
+    $('noprefsFound').textContent = state.found.length
+      ? 'A preferences file does exist at ' + state.found.join(' and ') + ', but your profile does not point to it.'
+      : 'No preferences file was found at the usual addresses either, so one would need to be created first.'
+    $('noprefsLine').textContent = preferencesLink(webId(), guess)
+    showOnly('noprefs')
+    working(state.trace, true)
   }
 
   function have (index, justMade) {
@@ -126,7 +172,7 @@
   async function look () {
     const mine = ++run
     const who = $('who')
-    if (!webId()) { who.hidden = true; showOnly('out'); return }
+    if (!webId()) { who.hidden = true; working([], false); showOnly('out'); return }
     who.hidden = false
     who.textContent = 'Logged in as ' + webId()
     $('busyText').textContent = 'Looking at your pod…'
@@ -134,8 +180,9 @@
     try {
       const state = await lookUp(context())
       if (mine !== run) return
+      if (!state.preferences) return noPreferences(state)
+      working(state.trace, false)
       if (state.index) return have(state.index, false)
-      if (!state.preferences) return trouble(new Error('Your profile does not name a preferences file, so there is nowhere to put the link to a tool index.'))
       const list = $('plan')
       list.replaceChildren()
       for (const step of plan({ webId: webId(), ...state })) {
@@ -154,12 +201,23 @@
 
   $('login').addEventListener('click', () => { if (window.xlogin && window.xlogin.login) window.xlogin.login() })
   $('again').addEventListener('click', look)
+  $('again2').addEventListener('click', look)
+  $('copyLine').addEventListener('click', async () => {
+    const button = $('copyLine')
+    try { await navigator.clipboard.writeText($('noprefsLine').textContent); button.textContent = 'Copied' } catch {
+      const range = document.createRange(); range.selectNodeContents($('noprefsLine'))
+      const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range)
+      button.textContent = 'Selected: press Ctrl+C'
+    }
+    setTimeout(() => { button.textContent = 'Copy the line' }, 2500)
+  })
   $('create').addEventListener('click', async () => {
     $('create').disabled = true
     $('busyText').textContent = 'Creating your tool index…'
     showOnly('busy')
     try {
       const made = await create(context())
+      working(made.trace, false)
       have(made.index, made.created || made.linked)
     } catch (error) {
       trouble(error)
