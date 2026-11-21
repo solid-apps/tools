@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tools · set up your tool index</title>
+<meta name="description" content="Create a tool index in your Solid pod: the private list of panes and apps you want. One file and one link, shown to you before anything is written.">
+<link rel="canonical" href="https://solid-apps.github.io/tools/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#6d4aff">
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f6f7fb; color: #1f2430; font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 40px max(16px, env(safe-area-inset-left, 0px)) 72px; }
+  h1 { font-size: 30px; letter-spacing: -.01em; margin: 0 0 6px; }
+  h2 { font-size: 18px; margin: 0 0 10px; }
+  p { margin: 0 0 14px; }
+  .lead { color: #4a5263; font-size: 17px; margin-bottom: 26px; }
+  .card { background: #fff; border: 1px solid #e3e6ee; border-radius: 14px; padding: 20px; margin: 0 0 16px; }
+  .card.good { border-color: #b8e2c8; background: #f3fbf6; }
+  .card.bad { border-color: #efc2c2; background: #fdf5f5; }
+  .who { font-size: 14px; color: #5b6272; overflow-wrap: anywhere; }
+  button, a.button { font: inherit; font-weight: 650; display: inline-block; padding: 10px 20px; border-radius: 999px; border: 1px solid #6d4aff; background: #6d4aff; color: #fff; cursor: pointer; text-decoration: none; }
+  button:hover, a.button:hover { background: #5b3be0; }
+  button.quiet { background: #fff; color: #4b3bd6; border-color: #cfd4e0; }
+  button.quiet:hover { background: #f3f1ff; }
+  button:disabled { opacity: .55; cursor: default; }
+  .steps { display: grid; gap: 10px; margin: 0 0 16px; padding: 0; list-style: none; }
+  .steps li { border: 1px solid #e3e6ee; border-radius: 10px; padding: 12px 14px; background: #fafbfe; }
+  .steps strong { display: block; }
+  .steps code, .addr { display: block; margin: 4px 0; font: 13px/1.45 ui-monospace, "SF Mono", Menlo, monospace; color: #33405c; overflow-wrap: anywhere; }
+  .steps span { font-size: 14px; color: #5b6272; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .small { font-size: 14px; color: #5b6272; }
+  a { color: #4b3bd6; }
+  [hidden] { display: none !important; }
+</style>
+<script src="https://unpkg.com/xlogin@0.0.16"></script>
+</head>
+<body>
+<main>
+  <h1>Tools</h1>
+  <p class="lead">Set up a tool index in your Solid pod: your own private list of the panes and apps you want to use on your data.</p>
+
+  <section class="card" id="out">
+    <h2>Log in with your pod</h2>
+    <p>This app looks at your preferences file to see whether you already have a tool index. It writes nothing until you ask it to.</p>
+    <button id="login" type="button">Log in</button>
+  </section>
+
+  <section class="card" id="busy" hidden>
+    <p id="busyText">Looking at your pod…</p>
+  </section>
+
+  <section class="card good" id="have" hidden>
+    <h2>You have a tool index</h2>
+    <span class="addr" id="haveAddress"></span>
+    <p id="haveNote">Open it to add or remove panes and apps.</p>
+    <a class="button" id="haveOpen" target="_blank" rel="noopener">Open the dashboard</a>
+  </section>
+
+  <section class="card" id="propose" hidden>
+    <h2>You do not have a tool index yet</h2>
+    <p>Creating one makes two changes in your pod, and nothing else:</p>
+    <ol class="steps" id="plan"></ol>
+    <div class="row">
+      <button id="create" type="button">Create my tool index</button>
+      <span class="small">To undo it later: delete the new file and remove the one line.</span>
+    </div>
+  </section>
+
+  <section class="card bad" id="trouble" hidden>
+    <h2>That did not work</h2>
+    <p id="troubleText"></p>
+    <button class="quiet" id="again" type="button">Look again</button>
+  </section>
+
+  <p class="who" id="who" hidden></p>
+  <p class="small" id="foot">A tool index follows the <a href="https://pod-os.org/vocab/tools">PodOS tools vocabulary</a>. The <a href="https://solidos.org/docs/browser/">SolidOS Browser</a> reads it when you log in. Source: <a href="https://github.com/solid-apps/tools">github.com/solid-apps/tools</a></p>
+</main>
+
+<script type="module">
+  import * as rdf from 'https://esm.sh/rdflib@2.4.1'
+  import { lookUp, plan, create, dashboard } from './tools.js'
+
+  const $ = (id) => document.getElementById(id)
+  const sections = ['out', 'busy', 'have', 'propose', 'trouble']
+  const showOnly = (id) => { for (const name of sections) $(name).hidden = name !== id }
+  const webId = () => (window.xlogin && window.xlogin.type === 'solid' && window.xlogin.id) || ''
+  const context = () => ({ webId: webId(), fetch: (url, init) => window.xlogin.authFetch(url, init), rdf })
+
+  function trouble (error) {
+    $('troubleText').textContent = error && error.message ? error.message : String(error)
+    showOnly('trouble')
+  }
+
+  function have (index, justMade) {
+    $('haveAddress').textContent = index
+    $('haveNote').textContent = justMade
+      ? 'It is empty. Open it to add your first panes and apps.'
+      : 'Open it to add or remove panes and apps.'
+    $('haveOpen').href = dashboard(index)
+    document.querySelector('#have h2').textContent = justMade ? 'Your tool index is ready' : 'You have a tool index'
+    showOnly('have')
+  }
+
+  let run = 0
+  async function look () {
+    const mine = ++run
+    const who = $('who')
+    if (!webId()) { who.hidden = true; showOnly('out'); return }
+    who.hidden = false
+    who.textContent = 'Logged in as ' + webId()
+    $('busyText').textContent = 'Looking at your pod…'
+    showOnly('busy')
+    try {
+      const state = await lookUp(context())
+      if (mine !== run) return
+      if (state.index) return have(state.index, false)
+      if (!state.preferences) return trouble(new Error('Your profile does not name a preferences file, so there is nowhere to put the link to a tool index.'))
+      const list = $('plan')
+      list.replaceChildren()
+      for (const step of plan({ webId: webId(), ...state })) {
+        const item = document.createElement('li')
+        const what = document.createElement('strong'); what.textContent = step.what
+        const where = document.createElement('code'); where.textContent = step.where
+        const detail = document.createElement('span'); detail.textContent = step.detail
+        item.append(what, where, detail)
+        list.appendChild(item)
+      }
+      showOnly('propose')
+    } catch (error) {
+      if (mine === run) trouble(error)
+    }
+  }
+
+  $('login').addEventListener('click', () => { if (window.xlogin && window.xlogin.login) window.xlogin.login() })
+  $('again').addEventListener('click', look)
+  $('create').addEventListener('click', async () => {
+    $('create').disabled = true
+    $('busyText').textContent = 'Creating your tool index…'
+    showOnly('busy')
+    try {
+      const made = await create(context())
+      have(made.index, made.created || made.linked)
+    } catch (error) {
+      trouble(error)
+    }
+    $('create').disabled = false
+  })
+
+  document.addEventListener('xlogin', look)
+  document.addEventListener('xlogout', look)
+  look()
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "Tools",
+  "short_name": "Tools",
+  "description": "Set up a tool index in your Solid pod: your private list of panes and apps.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f7fb",
+  "theme_color": "#6d4aff",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
